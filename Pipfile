@@ -1,0 +1,49 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+numpy = "*"
+torchvision = "*"
+scikit-learn = "*"
+matplotlib = "*"
+librosa = "*"
+ssqueezepy = "*"
+tqdm = "*"
+pandas = "*"
+wfdb = "*"
+xkcdpass = "*"
+click = "*"
+tensorboard = "*"
+pywavelets = "*"
+pyaudio = "*"
+pyrubberband = "*"
+ipython = "*"
+ipykernel = "*"
+torchaudio = "*"
+transformers = "*"
+optuna = "*"
+pacmap = "*"
+einops = "*"
+mysqlclient = "*"
+optuna-dashboard = "*"
+numba = "*"
+cuda-python = "*"
+causal-conv1d = "*"
+mamba-ssm = "*"
+sounddevice = "*"
+jupyter = "*"
+ipywidgets = "*"
+peft = "*"
+nemo = "*"
+nemo-toolkit = {extras = ["all"], version = "*"}
+torch = "*"
+pef = "*"
+
+[dev-packages]
+torch-tb-profiler = "*"
+
+[requires]
+python_version = "3.11"
+python_full_version = "3.11.9"
