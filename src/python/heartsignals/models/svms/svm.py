@@ -3,6 +3,7 @@
     To run an svm to fit based on features from a neural network
 """
 
+import joblib
 import numpy as np
 from sklearn import svm
 from sklearn.feature_selection import SelectKBest
@@ -96,7 +97,7 @@ class NeuralSVM(nn.Module):
     config = None
 
     def __init__(self, model: PreTrainedModel):
-        super().__init__() 
+        super().__init__()
         self.svm = None
         self.activations = []
         self.last_activation = None
@@ -105,6 +106,8 @@ class NeuralSVM(nn.Module):
         self.classifier_layer = 0
 
     def fit(self, dataset: Dataset):
+        self.model.eval()
+
         self.svm = svm.SVC()
         self.activations = []
 
@@ -140,20 +143,43 @@ class NeuralSVM(nn.Module):
         if self.svm is None:
             raise ValueError("The svm has not yet been fit!")
 
+        self.model.eval()
+
         hook_handle = self.model.classifier[self.classifier_layer].register_forward_hook(self._save_activations)
 
         #if self.model.backbone.config.model_type in ["energy_transformer_mfcc"]:
             #input_vals = self.model.backbone.preprocess_mfcc_multichannel_batch(input_vals)
             #self.model(input_vals, torch.ones(input_vals.shape[0], input_vals.shape[-1], dtype=torch.int64, device=input_vals.device), labels, run_criterion=False)
         #else:
-        self.model(input_vals, labels)
+        nn_prediction = self.model(input_vals, labels)
         out = torch.tensor(self.svm.predict(self.selector.transform(self.last_activation)))
 
         hook_handle.remove()
 
         return out
-    
+
     def _save_activations(self, module, input, output):
         activation = output
         self.activations.extend(activation.cpu().detach().numpy())
         self.last_activation = activation.cpu().detach().numpy()
+
+    def save_model(self, path: str):
+        if self.svm is None or self.selector is None:
+            raise ValueError("Nothing to save: fit() must be called before save_model().")
+
+        payload = {
+            "svm": self.svm,
+            "selector": self.selector,
+            "classifier_layer": self.classifier_layer,
+        }
+        joblib.dump(payload, path)
+
+    def load_model(self, path: str, model: PreTrainedModel):
+        payload = joblib.load(path)
+
+        self.svm = payload["svm"]
+        self.selector = payload["selector"]
+        self.classifier_layer = payload.get("classifier_layer", 0)
+
+        self.model = model
+        return self

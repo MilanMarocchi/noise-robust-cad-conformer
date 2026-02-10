@@ -7,9 +7,9 @@ timestamp=$(date +"%b%d-%Y")
 seconds_since_midnight=$(($(date +%s) % 86400))
 today="${timestamp}-${seconds_since_midnight}"
 name="vest-data-${model}-baseline-${today}"
-channels="1,2,3,4"
+channels="1,3,4,5"
 log_file="${name}-123-ch${channels//,/}-${experiment}.log"
-schedule_file="data/th123-schedule-from-spec-matt-med-1234.json"
+schedule_file="data/th123-schedule-from-spec-matt-med-1345.json"
 num_channels=$(( $(grep -o "," <<< "$channels" | wc -l) + 1))
 
 echo "" > "${log_file}"

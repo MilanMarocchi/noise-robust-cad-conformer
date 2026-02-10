@@ -7,7 +7,7 @@ from transformers import (
     PreTrainedModel,
     PretrainedConfig,
 )
-from learners.loss_functions import CenterLoss, ContrastiveFocalLoss
+from heartsignals.learners.loss_functions import CenterLoss, ContrastiveFocalLoss
 import torch.nn as nn
 import torch.nn.functional as F
 import torchaudio.transforms as T
@@ -17,13 +17,78 @@ import matplotlib.pyplot as plt
 import torch
 import torchaudio
 import torchaudio.functional as F_audio
-from processing.filtering import kpeak_normalise_signal_torch
+from heartsignals.processing.filtering import kpeak_normalise_signal_torch
+
+
+def preprocess_mel_complex_stft_multichannel_batch(
+    waveforms,  # shape: [B, T, C]
+    sample_rate=2000,
+    n_fft=512,
+    hop_length=160,
+    win_length=512,
+    n_mels=128,
+    f_min=20,
+    f_max=450,
+    device='cuda'
+):
+    waveforms = waveforms.to(device)  # [B, T, C]
+    waveforms = waveforms.transpose(1, 2)  # [B, C, T]
+
+    B, C, T = waveforms.shape
+    window = torch.hann_window(win_length).to(device)
+
+    # Precompute Mel filterbank
+    mel_fb = torchaudio.functional.melscale_fbanks(
+        n_freqs=n_fft // 2 + 1,
+        f_min=f_min,
+        f_max=f_max,
+        n_mels=n_mels,
+        sample_rate=sample_rate,
+        norm='slaney'
+    ).to(device)  # [F, n_mels]
+
+    mel_stft_realimag_list = []
+    for c in range(C):
+        # Complex STFT
+        stft_c = torch.stft(
+            waveforms[:, c],
+            n_fft=n_fft,
+            hop_length=hop_length,
+            win_length=win_length,
+            window=window,
+            return_complex=True
+        )  # [B, F, T']
+
+        stft_real = stft_c.real  # [B, F, T']
+        stft_imag = stft_c.imag  # [B, F, T']
+
+        # Apply Mel filterbank to real and imag separately: [B, n_mels, T']
+        mel_real = torch.matmul(mel_fb.T, stft_real)  # [B, n_mels, T']
+        mel_imag = torch.matmul(mel_fb.T, stft_imag)  # [B, n_mels, T']
+
+        # Normalize each part across time
+        def normalize(x):
+            mean = x.mean(dim=2, keepdim=True)
+            std = x.std(dim=2, keepdim=True) + 1e-6
+            return (x - mean) / std
+
+        mel_real = normalize(mel_real)
+        mel_imag = normalize(mel_imag)
+
+        # Concatenate real and imag parts: [B, 2 * n_mels, T']
+        mel_stft_c = torch.cat([mel_real, mel_imag], dim=1)
+        mel_stft_realimag_list.append(mel_stft_c)
+
+    # Concatenate over channels: [B, C * 2 * n_mels, T']
+    mel_stft_output = torch.cat(mel_stft_realimag_list, dim=1)
+    return mel_stft_output
 
 
 def preprocess_mfcc_multichannel_batch(
     waveforms,  # shape: [B, T, C]
-    sample_rate=4000,
-    n_mfcc=128,
+    sample_rate=2000,
+    n_mfcc=48,
+    n_mels=80,
     melkwargs=None,
     device='cuda'
 ):
@@ -34,7 +99,7 @@ def preprocess_mfcc_multichannel_batch(
         melkwargs = {
             "n_fft": 512,
             "hop_length": 160,
-            "n_mels": 128,
+            "n_mels": n_mels,
             "f_min": 20,
             "f_max": 450,
             "win_length": 512,
@@ -53,6 +118,11 @@ def preprocess_mfcc_multichannel_batch(
     for c in range(C):
         waveform = kpeak_normalise_signal_torch(waveforms[:, c], k=26*4)  # [B, T]
         mfcc_c = mfcc_transform(waveform)  # [B, n_mfcc, T']
+        # Z-normalization along time for each sample
+        #mean = mfcc_c.mean(dim=2, keepdim=True)
+        #std = mfcc_c.std(dim=2, keepdim=True) + 1e-6
+        #mfcc_c = (mfcc_c - mean) / std
+        mfcc_list.append(mfcc_c)
 
     # Concatenate MFCCs along feature (mel) axis: [B, C * n_mfcc, T']
     mfccs = torch.cat(mfcc_list, dim=1)
@@ -60,8 +130,9 @@ def preprocess_mfcc_multichannel_batch(
 
 def preprocess_mfcc_batch(
     waveforms,  # shape: [B, T]
-    sample_rate=4000,
+    sample_rate=2000,
     n_mfcc=128,
+    n_mels=128,
     melkwargs=None,
     device='cuda'
 ):
@@ -85,7 +156,7 @@ def preprocess_mfcc_batch(
         melkwargs = {
             "n_fft": 512,
             "hop_length": 160,
-            "n_mels": 128,
+            "n_mels": n_mels,
             "f_min": 20,
             "f_max": 450,
             "win_length": 512,
@@ -100,8 +171,15 @@ def preprocess_mfcc_batch(
     ).to(device)
 
     # Apply the transform to get MFCCs: [B, n_mfcc, time_steps]
+    #waveforms = kpeak_normalise_signal_torch(waveforms, k=26*4)  # [B, T]
     waveforms = kpeak_normalise_signal_torch(waveforms, k=26*4)  # [B, T]
     mfccs = mfcc_transform(waveforms)
+
+    # Z-normalization per sample (along time axis)
+    #mean = mfccs.mean(dim=2, keepdim=True)  # shape: [B, n_mfcc, 1]
+    #std = mfccs.std(dim=2, keepdim=True) + 1e-6  # avoid divide-by-zero
+    #mfccs = (mfccs - mean) / std  # shape: [B, n_mfcc, time_steps]
+
 
     return mfccs
 
@@ -111,6 +189,7 @@ class MFCConformerConfig(PretrainedConfig):
     def __init__(
         self,
         input_dim=128,              # MFCC dimension
+        n_mels=128,                 # Number of mel filters
         hidden_dim=512,            # Model dimension
         num_layers=4,             # Number of encoder blocks
         num_heads=4,               # Attention heads
@@ -131,6 +210,8 @@ class MFCConformerConfig(PretrainedConfig):
         **kwargs
     ):
         super().__init__(**kwargs)
+        self.n_mfccs = input_dim
+        self.n_mels = n_mels
         self.input_dim = input_dim * num_channels
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
@@ -142,7 +223,7 @@ class MFCConformerConfig(PretrainedConfig):
         self.num_classes = num_classes
         self.dropout = dropout
         self.layer_norm_eps = layer_norm_eps
-        self.num_inputs = num_channels 
+        self.num_inputs = num_channels
         self.lambda_c = lambda_c
         self.alpha = alpha
         self.beta = beta
@@ -238,7 +319,7 @@ class MFCConformer(PreTrainedModel):
 
     def extract_features(self, input_values, attention_mask=None, output_hidden_states=False):
         # input_values: [B, T, F]
-        mfcc = self.preprocessor(input_values)
+        mfcc = self.preprocessor(input_values, n_mfcc=self.config.n_mfccs, n_mels=self.config.n_mels)
         x = mfcc.transpose(1, 2)
         x = self.proj(x)
 

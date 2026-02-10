@@ -83,19 +83,22 @@ def get_model_config(
         return [
             {
                 "num_classes": num_classes,
-                "mlp_hidden_dim": 128,
+                "mlp_hidden_dim": 512,
                 "hidden_dim": 1024,
-                "num_heads": 8,
-                "num_blocks": 3,
+                "n_mels": 80,
+                "input_dim": 48,
+                "num_heads": 4,
+                "num_blocks": 4,
                 "num_layers": 3,
-                "alpha": 0.7235273084674146,
-                "beta": 0.9806929188485662,
-                "dropout": 0.17443591541595374,
-                "center": 0.0028132826530655472,
-                "temperature": 0.8050205602206422,
+                "alpha": 0.5828256081181153,
+                "beta": 0.7044231098956046,
+                "dropout": 0.28094364608354827,
+                "center": 0.0005596328065221168,
+                "temperature": 0.833051981452277,
                 "num_channels": num_inputs,
                 "fs": fs,
-                "fragment_time": fragment_time
+                "fragment_time": fragment_time,
+                "max_grad_norm": 1.0,
             } for _ in range(num_models + 1 if large_model else num_models)
         ]
     if model_code == "mfcccnn":
@@ -439,32 +442,33 @@ def get_model_training_args(
     if model_code in ["mfccmamba", "mfcconformer", "wav2vec"]:
         args = [
             TrainerArguments(
-                output_path, 
-                batch_size=1024,
-                num_epochs=num_epochs,
-                optim="rmsprop",
-                num_channels=num_inputs,
+                output_path,
+                batch_size=256,
                 mini_batch=64,
-                learing_rate=1.301371206688175e-06,
-                step_size=10,
-                max_grad_norm=2.0,
-                momentum=0.7668347059628783,
-                weight_decay=7.155729706588851e-05,
-                gamma=0.0010155666500639893,
-                adam_beta1=0.8707019318717432,
-                adam_beta2=0.9546571279188842,
-            ) for _ in range(num_models)]
-        args.append(
-            TrainerArguments(
-                output_path, 
-                batch_size=64,
                 num_epochs=num_epochs,
                 optim="adamw",
                 num_channels=num_inputs,
+                learning_rate=0.00018416367446326122,
+                step_size=9,
+                momentum=0.9607886767616296,
+                weight_decay=2.953834843634957e-05,
+                gamma=0.275950598987826,
+                max_grad_norm=1.0,
+            ) for _ in range(num_models)]
+        args.append(
+            TrainerArguments(
+                output_path,
+                batch_size=256,
                 mini_batch=64,
-                learing_rate=1e-4,
-                step_size=5,
-                max_grad_norm=2.0
+                num_epochs=num_epochs,
+                optim="adamw",
+                num_channels=num_inputs,
+                learning_rate=0.00018416367446326122,
+                step_size=9,
+                momentum=0.9607886767616296,
+                weight_decay=2.953834843634957e-05,
+                gamma=0.275950598987826,
+                max_grad_norm=1.0,
             )
         )
         return args
